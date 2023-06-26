@@ -6,9 +6,29 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"net/url"
-	"reflect"
+	"strconv"
+	"strings"
 	"time"
 )
+
+func getMessageID(s string) int {
+	i := strings.IndexByte(s, ',')
+	if i != -1 {
+		if v, err := strconv.Atoi(s[1:i]); err == nil {
+			return v
+		}
+	}
+	return 0
+}
+
+func getMessageData(s string) string {
+	a := strings.IndexByte(s, '{')
+	b := strings.LastIndexByte(s, '}')
+	if a != -1 && b != -1 {
+		return s[a : b+1]
+	}
+	return ""
+}
 
 func getWS(room, key string) string {
 	u := url.URL{Scheme: "wss", Host: "node2-ord.livemediahost.com:3000"}
@@ -35,17 +55,9 @@ func getWS(room, key string) string {
 
 		//fmt.Println(string(message))
 
-		var input []interface{}
+		messageID := getMessageID(string(message))
 
-		if err := json.Unmarshal(message, &input); err != nil {
-			fmt.Println(err)
-		}
-
-		if reflect.TypeOf(input[0]).String() != "float64" {
-			continue
-		}
-
-		if int(input[0].(float64)) == 2 {
+		if messageID == 2 {
 			if err = c.WriteMessage(websocket.TextMessage, []byte(`[5,{"room": "`+room+`"}]`)); err != nil {
 				fmt.Println(err.Error())
 				return ""
@@ -54,8 +66,15 @@ func getWS(room, key string) string {
 			continue
 		}
 
-		if int(input[0].(float64)) == 6 {
-			return input[1].(map[string]interface{})["url"].(string)
+		if messageID == 6 {
+			input := struct {
+				Url  string `json:"url"`
+				Room string `json:"room"`
+			}{}
+			if err := json.Unmarshal([]byte(getMessageData(string(message))), &input); err != nil {
+				fmt.Println(err)
+			}
+			return input.Url
 		}
 	}
 
@@ -76,9 +95,7 @@ func statRoom(room, key string) {
 		return
 	}
 
-	xurl := getWS(room, string(xkey))
-
-	wsUrl, _ := url.Parse(xurl)
+	wsUrl, _ := url.Parse(getWS(room, string(xkey)))
 
 	u := url.URL{Scheme: "wss", Host: wsUrl.Host}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
@@ -104,17 +121,31 @@ func statRoom(room, key string) {
 
 		//fmt.Println(string(message))
 
-		var input []interface{}
+		messageID := getMessageID(string(message))
 
-		if err := json.Unmarshal(message, &input); err != nil {
-			fmt.Println(err)
-		}
+		//fmt.Println(messageID)
 
-		if reflect.TypeOf(input[0]).String() == "float64" {
-			if int(input[0].(float64)) == 27 && input[1].(map[string]interface{})["subject_username"] != nil && input[1].(map[string]interface{})["value"] != nil {
-				//[27,{"recent_tips":88,"value":1,"subject_username":"max4you","is_tip":true,"is_stealth":false},1,["<b>max4you</b> tipped <b>1</b> tokens"]]
-				fmt.Println(input[1].(map[string]interface{})["subject_username"].(string), "send", int64(input[1].(map[string]interface{})["value"].(float64)), "to", room)
+		if messageID == 27 {
+			input := struct {
+				Value    int64  `json:"value"`
+				Username string `json:"subject_username"`
+				Tip      bool   `json:"is_tip"`
+				Stealth  bool   `json:"is_stealth"`
+			}{}
+			//[27,{"recent_tips":88,"value":1,"subject_username":"max4you","is_tip":true,"is_stealth":false},1,["<b>max4you</b> tipped <b>1</b> tokens"]]
+			if err := json.Unmarshal([]byte(getMessageData(string(message))), &input); err != nil {
+				//fmt.Println(string(message))
+				//fmt.Println(err)
+				continue
 			}
+			if !input.Tip || input.Value < 1 {
+				//fmt.Println(input.Tip, input.Value, "continue")
+				continue
+			}
+			if input.Stealth {
+				input.Username = "anon_tips"
+			}
+			fmt.Println(input.Username, "send", input.Value, "to", room)
 		}
 	}
 }
