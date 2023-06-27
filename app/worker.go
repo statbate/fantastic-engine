@@ -136,7 +136,7 @@ func getWS(workerData Info, key []byte) string {
 				fmt.Println(err.Error())
 				return ""
 			}
-			fmt.Println("send message!")
+			//fmt.Println("send message!")
 			continue
 		}
 
@@ -248,6 +248,11 @@ func xWorker(workerData Info) {
 		
 		
 		messageID := getMessageID(string(message))
+		
+		if messageID == 28 && strings.Contains(string(message), "offline") {
+			fmt.Println("offline:", workerData.room)
+			return
+		}
 		
 		if messageID == 27 {
 			input := struct {
