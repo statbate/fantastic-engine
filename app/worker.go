@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -8,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"encoding/base64"
 )
 
 var uptime = time.Now().Unix()
@@ -104,21 +104,21 @@ func getWS(workerData Info, key []byte) string {
 			HandshakeTimeout: 45 * time.Second, // https://pkg.go.dev/github.com/gorilla/websocket
 		}
 	}
-	
+
 	u := url.URL{Scheme: "wss", Host: "node2-ord.livemediahost.com:3000"}
 	c, _, err := Dialer.Dial(u.String(), nil)
 	if err != nil {
 		fmt.Println(err.Error(), u.String(), workerData.room)
 		return ""
 	}
-	
+
 	defer c.Close()
-	
+
 	if err = c.WriteMessage(websocket.TextMessage, []byte(`["v3.authorize",{"token":"`+string(key)+`"}]`)); err != nil {
 		fmt.Println(err.Error())
 		return ""
 	}
-	
+
 	for {
 		c.SetReadDeadline(time.Now().Add(45 * time.Second))
 		_, message, err := c.ReadMessage()
@@ -151,7 +151,7 @@ func getWS(workerData Info, key []byte) string {
 			return input.Url
 		}
 	}
-	
+
 	return ""
 }
 
@@ -164,12 +164,11 @@ func xWorker(workerData Info) {
 		rooms.Del <- workerData.room
 	}()
 
-
 	if len(workerData.Key) < 50 {
 		fmt.Println(workerData.Key, workerData.room)
 		return
 	}
-	
+
 	key, err := base64.StdEncoding.DecodeString(workerData.Key)
 	if err != nil {
 		fmt.Println(err, workerData.room)
@@ -202,22 +201,22 @@ func xWorker(workerData Info) {
 	}
 
 	defer c.Close()
-	
+
 	if err = c.WriteMessage(websocket.TextMessage, []byte(`["v3.authorize",{"token":"`+string(key)+`"}]`)); err != nil {
 		fmt.Println(err.Error(), workerData.room)
 		return
 	}
 
 	dons := make(map[string]struct{})
-	
+
 	ticker := time.NewTicker(60 * 60 * 8 * time.Second)
 	defer ticker.Stop()
-	
+
 	var income int64
 	income = 0
 
 	for {
-		
+
 		select {
 		case <-ticker.C:
 			fmt.Println("too_long exit:", workerData.room)
@@ -227,7 +226,7 @@ func xWorker(workerData Info) {
 			return
 		default:
 		}
-		
+
 		c.SetReadDeadline(time.Now().Add(30 * time.Minute))
 		_, message, err := c.ReadMessage()
 		if err != nil {
@@ -240,20 +239,19 @@ func xWorker(workerData Info) {
 
 		now := time.Now().Unix()
 		slog <- saveLog{workerData.Rid, now, string(message)}
-		
+
 		if now > workerData.Last+60*60 {
 			fmt.Println("no_tips exit:", workerData.room)
 			return
 		}
-		
-		
+
 		messageID := getMessageID(string(message))
-		
+
 		if messageID == 28 && strings.Contains(string(message), "offline") {
 			fmt.Println("offline:", workerData.room)
 			return
 		}
-		
+
 		if messageID == 27 {
 			input := struct {
 				Value    int64  `json:"value"`
@@ -274,21 +272,21 @@ func xWorker(workerData Info) {
 			if input.Stealth || len(input.Username) < 3 {
 				input.Username = "anon_tips"
 			}
-			
+
 			if _, ok := dons[input.Username]; !ok {
 				dons[input.Username] = struct{}{}
 				workerData.Dons++
 			}
-			
+
 			save <- saveData{workerData.room, strings.ToLower(input.Username), workerData.Rid, input.Value, now}
-			
+
 			income += input.Value
-			
+
 			workerData.Tips++
 			workerData.Last = now
 			workerData.Income += input.Value
 			rooms.Add <- workerData
-			
+
 			fmt.Println(input.Username, "send", input.Value, "tokens to", workerData.room)
 		}
 	}
