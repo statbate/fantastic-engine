@@ -73,6 +73,7 @@ func reconnectRoom(workerData Info) {
 	startRoom(workerData)
 }
 
+
 func getMessageID(s string) int {
 	i := strings.IndexByte(s, ',')
 	if i != -1 {
@@ -90,6 +91,22 @@ func getMessageData(s string) string {
 		return s[a : b+1]
 	}
 	return ""
+}
+
+
+
+func getRoomOnline(s string) int {
+	if len(s) > 4 {
+		x := s[1 : len(s)-1]
+		a := strings.IndexByte(x, '[')
+		b := strings.LastIndexByte(x, ']')
+		if a != -1 && b != -1 {
+			if v, err := strconv.Atoi(x[a+1 : b]); err == nil {
+				return v
+			}
+		}
+	}
+	return 0
 }
 
 func getWS(workerData Info, key []byte) string {
@@ -248,10 +265,16 @@ func xWorker(workerData Info) {
 		messageID := getMessageID(string(message))
 
 		if messageID == 28 && strings.Contains(string(message), "offline") {
-			fmt.Println("offline:", workerData.room)
+			fmt.Println("offline exit:", workerData.room)
 			return
 		}
-
+		
+		//[39,{},1,[51]]
+		if messageID == 39 && getRoomOnline(string(message)) < 10 {
+			fmt.Println("few users exit:", workerData.room)
+			return
+		}
+		
 		if messageID == 27 {
 			input := struct {
 				Value    int64  `json:"value"`
